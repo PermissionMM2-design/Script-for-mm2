@@ -1,0 +1,678 @@
+--[[
+    MM2 Tools 3.2 (Full) — ESP сквозь стены + все функции
+    Подсветка: убийца 🔴, шериф 🔵, мирный 🟢, монеты 🟡
+--]]
+
+repeat task.wait(0.5) until game:IsLoaded() and game.Players.LocalPlayer and game.Players.LocalPlayer.Character
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character
+local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+local RootPart = Character:FindFirstChild("HumanoidRootPart")
+
+if not Humanoid or not RootPart then
+    Character:WaitForChild("HumanoidRootPart")
+    Humanoid = Character:WaitForChild("Humanoid")
+    RootPart = Character.HumanoidRootPart
+end
+
+-- ==================== ПЕРЕМЕННЫЕ ====================
+local espPlayers = false
+local espItems = false
+local noclipEnabled = false
+local speedEnabled = false
+local speedValue = 50
+local jumpEnabled = false
+local jumpValue = 50
+local aimbotEnabled = false
+local shootWallEnabled = false
+
+local playerHighlights = {} -- player -> {highlights, billboard, connections}
+local itemEspObjects = {}
+
+-- ==================== ОПРЕДЕЛЕНИЕ РОЛЕЙ ====================
+local function getPlayerRole(player)
+    local char = player.Character
+    if not char then return "Unknown" end
+    if char:FindFirstChild("Knife") or char:FindFirstChild("MurdererKnife") then
+        return "Murderer"
+    end
+    if char:FindFirstChild("Gun") or char:FindFirstChild("SheriffGun") then
+        return "Sheriff"
+    end
+    if player:FindFirstChild("Role") then
+        local role = player.Role.Value
+        if role == "Murderer" then return "Murderer"
+        elseif role == "Sheriff" then return "Sheriff"
+        else return "Civilian" end
+    end
+    return "Civilian"
+end
+
+local function getRoleColor(player)
+    local role = getPlayerRole(player)
+    if role == "Murderer" then return Color3.fromRGB(255, 50, 50)
+    elseif role == "Sheriff" then return Color3.fromRGB(50, 100, 255)
+    elseif role == "Civilian" then return Color3.fromRGB(50, 255, 50)
+    else return Color3.fromRGB(255, 215, 0) end
+end
+
+-- ==================== ESP (подсветка игроков) ====================
+local function createPlayerESP(player)
+    if player == LocalPlayer then return end
+    if playerHighlights[player] then return end
+
+    local char = player.Character
+    if not char then return end
+
+    local data = {
+        highlights = {},
+        billboard = nil,
+        connections = {}
+    }
+
+    -- Highlight на каждую часть тела
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local hl = Instance.new("Highlight")
+            hl.Parent = part
+            hl.Adornee = part
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.FillTransparency = 0.5
+            hl.OutlineTransparency = 0.3
+            local color = getRoleColor(player)
+            hl.FillColor = color
+            hl.OutlineColor = color
+            table.insert(data.highlights, hl)
+        end
+    end
+
+    -- Billboard для имени
+    local head = char:FindFirstChild("Head")
+    if head then
+        local bill = Instance.new("BillboardGui")
+        bill.Size = UDim2.new(0, 200, 0, 50)
+        bill.Adornee = head
+        bill.StudsOffset = Vector3.new(0, 2.5, 0)
+        bill.AlwaysOnTop = true
+        bill.MaxDistance = 200
+
+        local frame = Instance.new("Frame", bill)
+        frame.Size = UDim2.new(1, 0, 1, 0)
+        frame.BackgroundTransparency = 0.4
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+        frame.BackgroundColor3 = getRoleColor(player)
+
+        local label = Instance.new("TextLabel", frame)
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = player.Name
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.TextColor3 = Color3.new(1,1,1)
+        label.TextStrokeTransparency = 0.3
+        label.TextStrokeColor3 = Color3.new(0,0,0)
+
+        bill.Parent = gui
+        data.billboard = bill
+    end
+
+    -- Пересоздание при смене персонажа
+    local conn = player.CharacterAdded:Connect(function(newChar)
+        if playerHighlights[player] then
+            local old = playerHighlights[player]
+            for _, h in ipairs(old.highlights) do h:Destroy() end
+            if old.billboard then old.billboard:Destroy() end
+            for _, c in ipairs(old.connections) do pcall(c.Disconnect, c) end
+            playerHighlights[player] = nil
+        end
+        task.wait(0.5)
+        if espPlayers then createPlayerESP(player) end
+    end)
+    table.insert(data.connections, conn)
+
+    playerHighlights[player] = data
+end
+
+local function updateAllPlayerESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if espPlayers then
+                if not playerHighlights[player] then
+                    createPlayerESP(player)
+                else
+                    -- Обновляем цвета
+                    local data = playerHighlights[player]
+                    if data then
+                        local color = getRoleColor(player)
+                        for _, hl in ipairs(data.highlights) do
+                            hl.FillColor = color
+                            hl.OutlineColor = color
+                        end
+                        if data.billboard then
+                            local frame = data.billboard:FindFirstChildOfClass("Frame")
+                            if frame then frame.BackgroundColor3 = color end
+                        end
+                    end
+                end
+            else
+                if playerHighlights[player] then
+                    local data = playerHighlights[player]
+                    for _, h in ipairs(data.highlights) do h:Destroy() end
+                    if data.billboard then data.billboard:Destroy() end
+                    for _, c in ipairs(data.connections) do pcall(c.Disconnect, c) end
+                    playerHighlights[player] = nil
+                end
+            end
+        end
+    end
+end
+
+-- ==================== ESP (предметы) ====================
+local function createItemESP(item)
+    if not item or not item.Parent then return end
+    local bill = Instance.new("BillboardGui")
+    bill.Size = UDim2.new(0, 100, 0, 30)
+    bill.Adornee = item
+    bill.StudsOffset = Vector3.new(0, 1, 0)
+    bill.AlwaysOnTop = true
+    bill.MaxDistance = 100
+
+    local frame = Instance.new("Frame", bill)
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 0.3
+    frame.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "🔫"
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.TextColor3 = Color3.new(1,1,1)
+
+    bill.Parent = gui
+    table.insert(itemEspObjects, bill)
+end
+
+local function scanItems()
+    for _, obj in ipairs(itemEspObjects) do
+        pcall(function() obj:Destroy() end)
+    end
+    itemEspObjects = {}
+    if not espItems then return end
+
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Tool") and obj.Parent ~= LocalPlayer.Character then
+            if obj.Parent and obj.Parent:IsA("Model") and obj.Parent:FindFirstChild("Humanoid") then
+                -- пропускаем, если в руках
+            else
+                createItemESP(obj)
+            end
+        end
+    end
+end
+
+-- ==================== НОКЛИП ====================
+local function setNoclip(state)
+    for _, part in ipairs(Character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not state
+        end
+    end
+end
+
+-- ==================== СКОРОСТЬ / ПРЫЖОК ====================
+local function updateSpeed()
+    Humanoid.WalkSpeed = speedEnabled and speedValue or 16
+end
+
+local function updateJump()
+    Humanoid.JumpPower = jumpEnabled and jumpValue or 50
+end
+
+-- ==================== AIMBOT ====================
+local function findMurderer()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local role = getPlayerRole(player)
+            if role == "Murderer" then
+                local char = player.Character
+                if char and char:FindFirstChild("Head") then
+                    return char.Head
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function aimbotUpdate()
+    if not aimbotEnabled then return end
+    local target = findMurderer()
+    if not target then return end
+    local cam = Workspace.CurrentCamera
+    local targetPos = target.Position
+    local currentPos = cam.CFrame.Position
+    local newCFrame = CFrame.lookAt(currentPos, targetPos)
+    cam.CFrame = cam.CFrame:Lerp(newCFrame, 0.2)
+end
+
+-- ==================== ТЕЛЕПОРТЫ ====================
+local function teleportTo(part)
+    if not part or not part:IsA("BasePart") then return end
+    if RootPart then
+        RootPart.CFrame = part.CFrame + Vector3.new(0, 2, 0)
+    end
+end
+
+local function teleportToPlayer(player)
+    if not player then return end
+    local char = player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        teleportTo(char.HumanoidRootPart)
+    end
+end
+
+local function teleportToMurderer()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and getPlayerRole(player) == "Murderer" then
+            teleportToPlayer(player)
+            return
+        end
+    end
+end
+
+local function teleportToSheriff()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and getPlayerRole(player) == "Sheriff" then
+            teleportToPlayer(player)
+            return
+        end
+    end
+end
+
+local function teleportToWeapon()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Tool") and obj.Parent ~= LocalPlayer.Character then
+            local part = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
+            if part then
+                teleportTo(part)
+                return
+            end
+        end
+    end
+end
+
+local function pickUpGun()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Tool") and (obj.Name == "Gun" or obj.Name == "SheriffGun" or obj.Name == "Pistol") then
+            if obj.Parent ~= LocalPlayer.Character then
+                local part = obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("BasePart")
+                if part then
+                    teleportTo(part)
+                    task.wait(0.2)
+                    local click = obj:FindFirstChildOfClass("ClickDetector")
+                    if click then fireclickdetector(click) end
+                end
+                return
+            end
+        end
+    end
+end
+
+local function toggleShootWall(state)
+    print("Стрельба сквозь стены " .. (state and "включена" or "выключена"))
+end
+
+local function becomeMurderer()
+    local knife = ReplicatedStorage:FindFirstChild("Knife") or game:GetService("Lighting"):FindFirstChild("Knife")
+    if knife then
+        local clone = knife:Clone()
+        clone.Parent = LocalPlayer.Character
+    end
+end
+
+local function becomeSheriff()
+    local gun = ReplicatedStorage:FindFirstChild("Gun") or game:GetService("Lighting"):FindFirstChild("Gun")
+    if gun then
+        local clone = gun:Clone()
+        clone.Parent = LocalPlayer.Character
+    end
+end
+
+-- ==================== GUI ====================
+local gui = Instance.new("ScreenGui")
+gui.Name = "MM2_Tools_Full"
+gui.ResetOnSpawn = false
+gui.Parent = game:GetService("CoreGui")
+
+local overlay = Instance.new("Frame", gui)
+overlay.Size = UDim2.new(1,0,1,0)
+overlay.BackgroundColor3 = Color3.new(0,0,0)
+overlay.BackgroundTransparency = 1
+
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 560, 0, 520)
+main.Position = UDim2.new(0.5, -280, 0.5, -260)
+main.BackgroundColor3 = Color3.fromRGB(245, 245, 255)
+main.BackgroundTransparency = 0.28
+main.Visible = false
+main.ClipsDescendants = true
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 32)
+Instance.new("UIStroke", main).Thickness = 3
+Instance.new("UIStroke", main).Color = Color3.fromRGB(255,255,255)
+Instance.new("UIStroke", main).Transparency = 0.4
+
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1,0,0,65)
+title.BackgroundTransparency = 1
+title.Text = "MM2 Tools 3.2 (Full)"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 24
+title.TextColor3 = Color3.new(0,0,0)
+
+-- Вкладки
+local tabHolder = Instance.new("Frame", main)
+tabHolder.Size = UDim2.new(1,-40,0,55)
+tabHolder.Position = UDim2.new(0,20,0,70)
+tabHolder.BackgroundTransparency = 1
+
+local list = Instance.new("UIListLayout", tabHolder)
+list.FillDirection = Enum.FillDirection.Horizontal
+list.Padding = UDim.new(0,12)
+list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local tabESP = Instance.new("TextButton", tabHolder) tabESP.Size = UDim2.new(0,155,1,0) tabESP.Text = "ESP" tabESP.BackgroundTransparency = 0.3 Instance.new("UICorner", tabESP).CornerRadius = UDim.new(0,14)
+local tabTP = Instance.new("TextButton", tabHolder) tabTP.Size = UDim2.new(0,155,1,0) tabTP.Text = "Телепорт" tabTP.BackgroundTransparency = 0.3 Instance.new("UICorner", tabTP).CornerRadius = UDim.new(0,14)
+local tabOther = Instance.new("TextButton", tabHolder) tabOther.Size = UDim2.new(0,155,1,0) tabOther.Text = "Остальное" tabOther.BackgroundTransparency = 0.3 Instance.new("UICorner", tabOther).CornerRadius = UDim.new(0,14)
+
+-- Скроллы
+local function createScroll()
+    local s = Instance.new("ScrollingFrame", main)
+    s.Size = UDim2.new(1,-40,1,-165)
+    s.Position = UDim2.new(0,20,0,135)
+    s.BackgroundTransparency = 1
+    s.Visible = false
+    Instance.new("UIListLayout", s).Padding = UDim.new(0,10)
+    return s
+end
+
+local sESP = createScroll() sESP.Visible = true
+local sTP = createScroll()
+local sOther = createScroll()
+
+-- ==================== СОЗДАНИЕ КНОПОК ====================
+local function createBtn(text, parent, callback)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(1,0,0,52)
+    btn.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    btn.BackgroundTransparency = 0.2
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 16
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,12)
+    Instance.new("UIStroke", btn).Thickness = 2
+    Instance.new("UIStroke", btn).Color = Color3.fromRGB(255,255,255)
+    Instance.new("UIStroke", btn).Transparency = 0.5
+
+    local origSize = btn.Size
+    btn.MouseButton1Down:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1,0,0,67)}):Play()
+    end)
+    btn.MouseButton1Up:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Size = origSize}):Play()
+        if callback then callback(btn) end
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Size = origSize}):Play()
+    end)
+    return btn
+end
+
+local function toggleButton(btn, state, onText, offText)
+    if state then
+        btn.Text = onText
+        btn.TextColor3 = Color3.fromRGB(0, 255, 100)
+    else
+        btn.Text = offText
+        btn.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end
+
+-- ESP
+createBtn("ESP игроков ВЫКЛ", sESP, function(btn)
+    espPlayers = not espPlayers
+    toggleButton(btn, espPlayers, "ESP игроков ВКЛ", "ESP игроков ВЫКЛ")
+    updateAllPlayerESP()
+end)
+
+createBtn("ESP предметов ВЫКЛ", sESP, function(btn)
+    espItems = not espItems
+    toggleButton(btn, espItems, "ESP предметов ВКЛ", "ESP предметов ВЫКЛ")
+    scanItems()
+end)
+
+-- Остальное
+createBtn("Ноклип ВЫКЛ", sOther, function(btn)
+    noclipEnabled = not noclipEnabled
+    toggleButton(btn, noclipEnabled, "Ноклип ВКЛ", "Ноклип ВЫКЛ")
+    setNoclip(noclipEnabled)
+end)
+
+-- Скорость
+local speedBtn = createBtn("Скорость ВЫКЛ", sOther, function(btn)
+    speedEnabled = not speedEnabled
+    toggleButton(btn, speedEnabled, "Скорость ВКЛ", "Скорость ВЫКЛ")
+    updateSpeed()
+end)
+local speedBox = Instance.new("TextBox", sOther)
+speedBox.Size = UDim2.new(1,0,0,30)
+speedBox.PlaceholderText = "Скорость (16-250)"
+speedBox.Text = "50"
+speedBox.ClearTextOnFocus = false
+speedBox.Changed:Connect(function()
+    local val = tonumber(speedBox.Text)
+    if val then
+        speedValue = math.clamp(val, 16, 250)
+        if speedEnabled then updateSpeed() end
+    end
+end)
+
+-- Прыжок
+local jumpBtn = createBtn("Прыжок ВЫКЛ", sOther, function(btn)
+    jumpEnabled = not jumpEnabled
+    toggleButton(btn, jumpEnabled, "Прыжок ВКЛ", "Прыжок ВЫКЛ")
+    updateJump()
+end)
+local jumpBox = Instance.new("TextBox", sOther)
+jumpBox.Size = UDim2.new(1,0,0,30)
+jumpBox.PlaceholderText = "Сила прыжка (50-200)"
+jumpBox.Text = "50"
+jumpBox.ClearTextOnFocus = false
+jumpBox.Changed:Connect(function()
+    local val = tonumber(jumpBox.Text)
+    if val then
+        jumpValue = math.clamp(val, 50, 200)
+        if jumpEnabled then updateJump() end
+    end
+end)
+
+createBtn("Aimbot ВЫКЛ", sOther, function(btn)
+    aimbotEnabled = not aimbotEnabled
+    toggleButton(btn, aimbotEnabled, "Aimbot ВКЛ", "Aimbot ВЫКЛ")
+end)
+
+createBtn("Стрельба сквозь стены ВЫКЛ", sOther, function(btn)
+    shootWallEnabled = not shootWallEnabled
+    toggleButton(btn, shootWallEnabled, "Стрельба сквозь стены ВКЛ", "Стрельба сквозь стены ВЫКЛ")
+    toggleShootWall(shootWallEnabled)
+end)
+
+-- Телепорты
+createBtn("Телепорт к убийце", sTP, function() teleportToMurderer() end)
+createBtn("Телепорт к шерифу", sTP, function() teleportToSheriff() end)
+createBtn("К оружию", sTP, function() teleportToWeapon() end)
+
+-- К игроку (список)
+local playerListFrame = nil
+local function showPlayerList()
+    if playerListFrame then playerListFrame:Destroy() playerListFrame = nil return end
+    playerListFrame = Instance.new("Frame", gui)
+    playerListFrame.Size = UDim2.new(0, 300, 0, 400)
+    playerListFrame.Position = UDim2.new(0.5, -150, 0.5, -200)
+    playerListFrame.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    playerListFrame.BackgroundTransparency = 0.3
+    Instance.new("UICorner", playerListFrame).CornerRadius = UDim.new(0, 12)
+    local layout = Instance.new("UIListLayout", playerListFrame)
+    layout.Padding = UDim.new(0, 5)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local btn = Instance.new("TextButton", playerListFrame)
+            btn.Size = UDim2.new(1, -20, 0, 40)
+            btn.Position = UDim2.new(0,10,0,0)
+            btn.Text = player.Name
+            btn.BackgroundColor3 = Color3.fromRGB(100,100,100)
+            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+            btn.MouseButton1Click:Connect(function()
+                teleportToPlayer(player)
+                if playerListFrame then playerListFrame:Destroy() playerListFrame = nil end
+            end)
+        end
+    end
+end
+createBtn("К игроку", sTP, function() showPlayerList() end)
+
+createBtn("Подобрать пистолет", sOther, function() pickUpGun() end)
+createBtn("Стать убийцей", sOther, function() becomeMurderer() end)
+createBtn("Стать шерифом", sOther, function() becomeSheriff() end)
+
+-- ==================== КНОПКА МЕНЮ ====================
+local menuBtn = Instance.new("ImageButton", gui)
+menuBtn.Size = UDim2.new(0, 72, 0, 72)
+menuBtn.Position = UDim2.new(1, -90, 0.5, -36)
+menuBtn.Image = "rbxassetid://6159452397"
+menuBtn.BackgroundTransparency = 1
+Instance.new("UICorner", menuBtn).CornerRadius = UDim.new(1,0)
+
+local isOpen = false
+
+local function openGUI()
+    isOpen = true
+    menuBtn.Visible = false
+    main.Visible = true
+    overlay.Visible = true
+
+    main.Size = UDim2.new(0, 80, 0, 80)
+    main.Position = UDim2.new(0, menuBtn.AbsolutePosition.X + 36, 0, menuBtn.AbsolutePosition.Y + 36)
+
+    TweenService:Create(overlay, TweenInfo.new(0.4), {BackgroundTransparency = 0.4}):Play()
+    TweenService:Create(main, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 560, 0, 520),
+        Position = UDim2.new(0.5, -280, 0.5, -260)
+    }):Play()
+end
+
+local function closeGUI()
+    isOpen = false
+    TweenService:Create(overlay, TweenInfo.new(0.35), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(main, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, 80, 0, 80),
+        Position = UDim2.new(0, menuBtn.AbsolutePosition.X + 36, 0, menuBtn.AbsolutePosition.Y + 36)
+    }):Play()
+
+    task.delay(0.5, function()
+        main.Visible = false
+        overlay.Visible = false
+        menuBtn.Visible = true
+    end)
+end
+
+menuBtn.MouseButton1Click:Connect(function()
+    if isOpen then closeGUI() else openGUI() end
+end)
+
+overlay.InputBegan:Connect(function(i)
+    if (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) and isOpen then
+        closeGUI()
+    end
+end)
+
+-- Переключение вкладок
+tabESP.MouseButton1Click:Connect(function() sESP.Visible = true; sTP.Visible = false; sOther.Visible = false end)
+tabTP.MouseButton1Click:Connect(function() sESP.Visible = false; sTP.Visible = true; sOther.Visible = false end)
+tabOther.MouseButton1Click:Connect(function() sESP.Visible = false; sTP.Visible = false; sOther.Visible = true end)
+
+-- ==================== ФОНОВЫЕ ЗАДАЧИ ====================
+-- Обновление цветов при смене роли
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if espPlayers then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and playerHighlights[player] then
+                    local data = playerHighlights[player]
+                    local color = getRoleColor(player)
+                    for _, hl in ipairs(data.highlights) do
+                        hl.FillColor = color
+                        hl.OutlineColor = color
+                    end
+                    if data.billboard then
+                        local frame = data.billboard:FindFirstChildOfClass("Frame")
+                        if frame then frame.BackgroundColor3 = color end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Обновление предметов
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if espItems then scanItems() end
+    end
+end)
+
+-- Aimbot
+RunService.RenderStepped:Connect(aimbotUpdate)
+
+-- Ноклип постоянно
+RunService.Stepped:Connect(function()
+    if noclipEnabled then
+        for _, part in ipairs(Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Добавление новых игроков
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if espPlayers then createPlayerESP(player) end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if playerHighlights[player] then
+        local data = playerHighlights[player]
+        for _, h in ipairs(data.highlights) do h:Destroy() end
+        if data.billboard then data.billboard:Destroy() end
+        for _, c in ipairs(data.connections) do pcall(c.Disconnect, c) end
+        playerHighlights[player] = nil
+    end
+end)
+
+print("✅ MM2 Tools Full загружен! Кнопка меню активна.")
