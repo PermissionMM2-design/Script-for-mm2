@@ -1,0 +1,221 @@
+--[[
+    MM2 Tools 3.2 (Beta) — С анимацией кнопок + цветной текст
+--]]
+
+repeat task.wait(0.5) until game:IsLoaded() and game.Players.LocalPlayer and game.Players.LocalPlayer.Character
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ==================== ПЕРЕМЕННЫЕ ====================
+local espPlayers = false
+local espItems = false
+local noclipEnabled = false
+local speedEnabled = false
+local speedValue = 50
+local jumpEnabled = false
+local jumpValue = 50
+local aimbotEnabled = false
+local shootWallEnabled = false
+
+-- ==================== GUI ====================
+local gui = Instance.new("ScreenGui")
+gui.Name = "MM2_Tools_3_2"
+gui.ResetOnSpawn = false
+gui.Parent = game:GetService("CoreGui")
+
+local overlay = Instance.new("Frame", gui)
+overlay.Size = UDim2.new(1,0,1,0)
+overlay.BackgroundColor3 = Color3.new(0,0,0)
+overlay.BackgroundTransparency = 1
+
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 560, 0, 460)
+main.Position = UDim2.new(0.5, -280, 0.5, -230)
+main.BackgroundColor3 = Color3.fromRGB(245, 245, 255)
+main.BackgroundTransparency = 0.28
+main.Visible = false
+main.ClipsDescendants = true
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 32)
+Instance.new("UIStroke", main).Thickness = 3
+Instance.new("UIStroke", main).Color = Color3.fromRGB(255,255,255)
+Instance.new("UIStroke", main).Transparency = 0.4
+
+local title = Instance.new("TextLabel", main)
+title.Size = UDim2.new(1,0,0,65)
+title.BackgroundTransparency = 1
+title.Text = "MM2 Tools 3.2 (Beta)"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 24
+title.TextColor3 = Color3.new(0,0,0)
+
+-- Вкладки
+local tabHolder = Instance.new("Frame", main)
+tabHolder.Size = UDim2.new(1,-40,0,55)
+tabHolder.Position = UDim2.new(0,20,0,70)
+tabHolder.BackgroundTransparency = 1
+
+local list = Instance.new("UIListLayout", tabHolder)
+list.FillDirection = Enum.FillDirection.Horizontal
+list.Padding = UDim.new(0,12)
+list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local tabESP = Instance.new("TextButton", tabHolder) tabESP.Size = UDim2.new(0,155,1,0) tabESP.Text = "ESP" tabESP.BackgroundTransparency = 0.3 Instance.new("UICorner", tabESP).CornerRadius = UDim.new(0,14)
+local tabTP = Instance.new("TextButton", tabHolder) tabTP.Size = UDim2.new(0,155,1,0) tabTP.Text = "Телепорт" tabTP.BackgroundTransparency = 0.3 Instance.new("UICorner", tabTP).CornerRadius = UDim.new(0,14)
+local tabOther = Instance.new("TextButton", tabHolder) tabOther.Size = UDim2.new(0,155,1,0) tabOther.Text = "Остальное" tabOther.BackgroundTransparency = 0.3 Instance.new("UICorner", tabOther).CornerRadius = UDim.new(0,14)
+
+-- Скроллы
+local function createScroll()
+    local s = Instance.new("ScrollingFrame", main)
+    s.Size = UDim2.new(1,-40,1,-165)
+    s.Position = UDim2.new(0,20,0,135)
+    s.BackgroundTransparency = 1
+    s.Visible = false
+    Instance.new("UIListLayout", s).Padding = UDim.new(0,10)
+    return s
+end
+
+local sESP = createScroll() sESP.Visible = true
+local sTP = createScroll()
+local sOther = createScroll()
+
+local function createBtn(text, parent, callback)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(1,0,0,52)
+    btn.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    btn.BackgroundTransparency = 0.2
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 16
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,12)
+    Instance.new("UIStroke", btn).Thickness = 2
+    Instance.new("UIStroke", btn).Color = Color3.fromRGB(255,255,255)
+    Instance.new("UIStroke", btn).Transparency = 0.5
+
+    local origSize = btn.Size
+
+    btn.MouseButton1Down:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1,0,0,67)}):Play()
+    end)
+    btn.MouseButton1Up:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Size = origSize}):Play()
+        if callback then callback(btn) end
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {Size = origSize}):Play()
+    end)
+
+    return btn
+end
+
+local function toggleButton(btn, state, onText, offText)
+    if state then
+        btn.Text = onText
+        btn.TextColor3 = Color3.fromRGB(0, 255, 100)  -- зелёный
+    else
+        btn.Text = offText
+        btn.TextColor3 = Color3.fromRGB(255, 80, 80)  -- красный
+    end
+end
+
+-- Кнопки
+createBtn("ESP игроков ВЫКЛ", sESP, function(btn)
+    espPlayers = not espPlayers
+    toggleButton(btn, espPlayers, "ESP игроков ВКЛ", "ESP игроков ВЫКЛ")
+end)
+
+createBtn("ESP предметов ВЫКЛ", sESP, function(btn)
+    espItems = not espItems
+    toggleButton(btn, espItems, "ESP предметов ВКЛ", "ESP предметов ВЫКЛ")
+end)
+
+createBtn("Ноклип ВЫКЛ", sOther, function(btn)
+    noclipEnabled = not noclipEnabled
+    toggleButton(btn, noclipEnabled, "Ноклип ВКЛ", "Ноклип ВЫКЛ")
+end)
+
+createBtn("Скорость ВЫКЛ", sOther, function(btn)
+    speedEnabled = not speedEnabled
+    toggleButton(btn, speedEnabled, "Скорость ВКЛ", "Скорость ВЫКЛ")
+end)
+
+createBtn("Прыжок ВЫКЛ", sOther, function(btn)
+    jumpEnabled = not jumpEnabled
+    toggleButton(btn, jumpEnabled, "Прыжок ВКЛ", "Прыжок ВЫКЛ")
+end)
+
+createBtn("Aimbot ВЫКЛ", sOther, function(btn)
+    aimbotEnabled = not aimbotEnabled
+    toggleButton(btn, aimbotEnabled, "Aimbot ВКЛ", "Aimbot ВЫКЛ")
+end)
+
+-- Остальные кнопки (без переключения)
+createBtn("Телепорт к убийце", sTP, function() print("Телепорт к убийце") end)
+createBtn("Телепорт к шерифу", sTP, function() print("Телепорт к шерифу") end)
+createBtn("К оружию", sTP, function() print("Телепорт к оружию") end)
+createBtn("К игроку", sTP, function() print("Открыть список игроков") end)
+createBtn("Подобрать пистолет", sOther, function() print("Подбор пистолета") end)
+createBtn("Стать убийцей (на разработке...)", sOther, function() print("Стать убийцей") end)
+createBtn("Стать шерифом (на разработке...)", sOther, function() print("Стать шерифом") end)
+createBtn("Стрельба сквозь стены (на разработке...)", sOther, function() print("Стрельба сквозь стены") end)
+
+-- Кнопка меню + анимация открытия
+local menuBtn = Instance.new("ImageButton", gui)
+menuBtn.Size = UDim2.new(0, 72, 0, 72)
+menuBtn.Position = UDim2.new(1, -90, 0.5, -36)
+menuBtn.Image = "rbxassetid://6159452397"
+menuBtn.BackgroundTransparency = 1
+Instance.new("UICorner", menuBtn).CornerRadius = UDim.new(1,0)
+
+local isOpen = false
+
+local function openGUI()
+    isOpen = true
+    menuBtn.Visible = false
+    main.Visible = true
+    overlay.Visible = true
+
+    main.Size = UDim2.new(0, 80, 0, 80)
+    main.Position = UDim2.new(0, menuBtn.AbsolutePosition.X + 36, 0, menuBtn.AbsolutePosition.Y + 36)
+
+    TweenService:Create(overlay, TweenInfo.new(0.4), {BackgroundTransparency = 0.4}):Play()
+
+    TweenService:Create(main, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 560, 0, 460),
+        Position = UDim2.new(0.5, -280, 0.5, -230)
+    }):Play()
+end
+
+local function closeGUI()
+    isOpen = false
+    TweenService:Create(overlay, TweenInfo.new(0.35), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(main, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, 80, 0, 80),
+        Position = UDim2.new(0, menuBtn.AbsolutePosition.X + 36, 0, menuBtn.AbsolutePosition.Y + 36)
+    }):Play()
+
+    task.delay(0.5, function()
+        main.Visible = false
+        overlay.Visible = false
+        menuBtn.Visible = true
+    end)
+end
+
+menuBtn.MouseButton1Click:Connect(function()
+    if isOpen then closeGUI() else openGUI() end
+end)
+
+overlay.InputBegan:Connect(function(i)
+    if (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) and isOpen then
+        closeGUI()
+    end
+end)
+
+-- Переключение вкладок
+tabESP.MouseButton1Click:Connect(function() sESP.Visible = true; sTP.Visible = false; sOther.Visible = false end)
+tabTP.MouseButton1Click:Connect(function() sESP.Visible = false; sTP.Visible = true; sOther.Visible = false end)
+tabOther.MouseButton1Click:Connect(function() sESP.Visible = false; sTP.Visible = false; sOther.Visible = true end)
+
+print("✅ Готово! Кнопки с анимацией и цветным текстом.")
