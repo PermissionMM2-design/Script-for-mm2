@@ -1,0 +1,188 @@
+-- ============================================
+-- ИИ-АССИСТЕНТ ДЛЯ DELTA EXECUTOR
+-- Команды через чат → ИИ генерирует код → Выполняет
+-- ============================================
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- ⚠️ ТВОЙ API КЛЮЧ (рекомендую заменить после первого теста)
+local apiKey = "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"
+local url = "https://api.groq.com/openai/v1/chat/completions"
+
+local headers = {
+    ["Authorization"] = "Bearer " .. apiKey,
+    ["Content-Type"] = "application/json"
+}
+
+-- Функция отправки запроса к ИИ
+local function askGroq(prompt)
+    local body = {
+        model = "llama-3.3-70b-versatile",
+        messages = {
+            {
+                role = "system",
+                content = [[Ты — ассистент по Lua для Roblox. 
+                Отвечай ТОЛЬКО чистым Lua-кодом, без объяснений.
+                Код должен работать в клиентском скрипте (LocalScript).
+                Используй только локальные переменные.
+                Не используй функции сервера (RemoteEvent, RemoteFunction).
+                Все действия должны быть безопасными для клиента.
+                Никогда не используй: game:Shutdown(), game:GetService("RunService"):RenderStepped:Wait() с бесконечными циклами.]]
+            },
+            {
+                role = "user",
+                content = "Напиши Lua-код для Roblox LocalScript, который выполняет: " .. prompt
+            }
+        },
+        max_tokens = 800,
+        temperature = 0.3
+    }
+    
+    local success, response = pcall(function()
+        return HttpService:PostAsync(url, HttpService:JSONEncode(body), Enum.HttpContentType.ApplicationJson, false, headers)
+    end)
+    
+    if success then
+        local data = HttpService:JSONDecode(response)
+        if data and data.choices and data.choices[1] then
+            local code = data.choices[1].message.content
+            -- Убираем маркеры кода
+            code = string.gsub(code, "```lua", "")
+            code = string.gsub(code, "```", "")
+            code = string.gsub(code, "^%s*(.-)%s*$", "%1") -- trim
+            return code
+        else
+            warn("❌ Неверный ответ от ИИ")
+            return nil
+        end
+    else
+        warn("❌ Ошибка запроса: " .. tostring(response))
+        return nil
+    end
+end
+
+-- Функция выполнения кода с защитой
+local function executeCode(code)
+    if not code or code == "" then
+        print("❌ Пустой код")
+        return false
+    end
+    
+    print("📜 Сгенерированный код:")
+    print("------------------------")
+    print(code)
+    print("------------------------")
+    
+    local func, err = loadstring(code)
+    if func then
+        local success, execErr = pcall(func)
+        if success then
+            print("✅ Код выполнен успешно!")
+            return true
+        else
+            warn("❌ Ошибка выполнения: " .. tostring(execErr))
+            return false
+        end
+    else
+        warn("❌ Ошибка компиляции: " .. err)
+        return false
+    end
+end
+
+-- Чёрный список для безопасности
+local blockedWords = {
+    "shutdown", "crash", "kick", "ban", 
+    "removeall", "clearall", "destroyall",
+    "http:request", "syn.request", "getfenv", "setfenv"
+}
+
+local function isSafeCommand(text)
+    local lowerText = string.lower(text)
+    for _, word in ipairs(blockedWords) do
+        if string.find(lowerText, word) then
+            return false, "⛔ Заблокированное слово: " .. word
+        end
+    end
+    return true
+end
+
+-- ============================================
+-- ОСНОВНАЯ ЛОГИКА (прослушивание чата)
+-- ============================================
+
+local function setupChatListener()
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then 
+        print("⏳ Ожидание PlayerGui...")
+        playerGui = player:WaitForChild("PlayerGui", 10)
+    end
+    
+    local chat = playerGui:FindFirstChild("Chat")
+    if not chat then
+        print("❌ Интерфейс чата не найден")
+        return
+    end
+    
+    local chatInput = chat:FindFirstChild("ChatInputBar")
+    if not chatInput then
+        print("❌ Поле ввода не найдено")
+        return
+    end
+    
+    chatInput.FocusLost:Connect(function(enterPressed)
+        if not enterPressed then return end
+        
+        local input = chatInput.Text
+        if input == "" or input == nil then return end
+        
+        chatInput.Text = ""
+        
+        -- Проверка безопасности
+        local safe, msg = isSafeCommand(input)
+        if not safe then
+            print("⛔ " .. msg)
+            return
+        end
+        
+        print("🤖 Обработка запроса: " .. input)
+        
+        -- Отправляем запрос ИИ
+        local code = askGroq(input)
+        if code then
+            executeCode(code)
+        else
+            print("❌ Не удалось получить код от ИИ")
+        end
+    end)
+    
+    print("💡 ИИ-ассистент активен! Пиши команды в чат.")
+    print("📌 Примеры: 'включи полёт', 'сделай скорость бега 100', 'создай ESP'")
+end
+
+-- Запуск
+pcall(setupChatListener)
+
+-- Если чат не найден, пробуем альтернативный метод (для некоторых игр)
+if not game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Chat") then
+    print("⚠️ Стандартный чат не найден, пробуем альтернативный способ...")
+    -- Ждём любой чат
+    local function findChat()
+        local gui = player:WaitForChild("PlayerGui", 10)
+        for _, child in ipairs(gui:GetChildren()) do
+            if child:IsA("ScreenGui") and string.find(string.lower(child.Name), "chat") then
+                print("✅ Найден чат: " .. child.Name)
+                -- Можно добавить логику для кастомных чатов
+                return
+            end
+        end
+        print("❌ Чат не найден. Используйте стандартный интерфейс Roblox.")
+    end
+    task.wait(2)
+    findChat()
+end
+
+print("=" .. string.rep("=", 40))
+print("🚀 СКРИПТ ЗАПУЩЕН. ВВОДИТЕ КОМАНДЫ В ЧАТ.")
+print("=" .. string.rep("=", 40))
